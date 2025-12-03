@@ -89,7 +89,7 @@ export default function Logs() {
                         <thead className="bg-light">
                             <tr>
                                 <th className="py-3 ps-4" style={{width: '200px'}}>Waktu</th>
-                                <th style={{width: '250px'}}>User (Pelaku)</th>
+                                <th style={{width: '250px'}}>User</th>
                                 <th style={{width: '150px'}}>Tipe Aksi</th>
                                 <th>Deskripsi</th>
                             </tr>

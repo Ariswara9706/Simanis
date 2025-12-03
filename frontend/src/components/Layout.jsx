@@ -46,7 +46,7 @@ export default function Layout({ children }) {
     <div className="d-flex flex-column h-100 bg-white">
       <div className="p-3 border-bottom text-center">
         <h5 className="mb-0 fw-bold text-primary">SIMANIS APP</h5>
-        <small className="text-muted">SDN Cawang 01</small>
+        <small className="text-muted">Sistem Analisis Jabatan JT2</small>
       </div>
       <Nav className="flex-column p-2 flex-grow-1 mt-2">
         {filteredMenus.map((menu) => (
