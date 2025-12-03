@@ -1,22 +1,21 @@
 import axios from 'axios';
 
-// LOGIKA OTOMATIS:
-// Jika sedang di Laptop (Development) -> Pakai Localhost:8080
-// Jika sedang di Render (Production) -> Pakai URL Render
-const API_URL = import.meta.env.DEV 
-  ? 'http://localhost:8080/api' 
-  : 'https://simanis-mmqi.onrender.com/api';
+// === LOGIKA FINAL (OTOMATIS) ===
+// 1. Cek apakah ada 'VITE_API_URL' (Ini yang kita setting di Dashboard Vercel tadi).
+// 2. Jika TIDAK ADA (artinya sedang di laptop/local), otomatis pakai 'http://localhost:8080'.
+// ----------------------------------------------------------------------------------------
+const BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8080';
 
-console.log('Saat ini terhubung ke:', API_URL); // Cek Console browser untuk memastikan
+console.log('🔗 Terhubung ke API:', `${BASE_URL}/api`); // Cek console browser untuk memastikan
 
 const api = axios.create({
-  baseURL: API_URL,
+  baseURL: `${BASE_URL}/api`, // Kita tambahkan /api di sini agar rapi
   headers: {
     'Content-Type': 'application/json',
   },
 });
 
-// Interceptor Token (Biarkan seperti semula)
+// Interceptor Token (Tetap sama)
 api.interceptors.request.use(
   (config) => {
     const token = localStorage.getItem('token');
