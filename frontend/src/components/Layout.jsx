@@ -1,18 +1,38 @@
-import React, { useState } from 'react'; // Jangan lupa import React
+import React, { useState } from 'react'; 
 import { useAuth } from '../context/AuthContext';
+// 1. IMPORT HOOK INI AGAR TERSAMBUNG KE ANJAB
+import { useNotification } from '../context/NotificationContext'; 
 import { Link, useLocation } from 'react-router-dom';
-import { Navbar, Container, Nav, Offcanvas, Button, Dropdown } from 'react-bootstrap';
+import { Navbar, Nav, Offcanvas, Button, Badge as BsBadge } from 'react-bootstrap';
 import { LayoutDashboard, FileText, Users, Activity, Menu, LogOut, UserCircle } from 'lucide-react';
 
 export default function Layout({ children }) {
   const { user, logout } = useAuth();
   const location = useLocation();
   const [show, setShow] = useState(false);
+  
+  // 2. GANTI STATE LOKAL DENGAN CONTEXT GLOBAL
+  // Jangan pakai useState/useEffect fetch sendiri lagi disini!
+  // Ambil langsung dari "Pusat Informasi"
+  const { notifCounts } = useNotification(); 
 
   const handleClose = () => setShow(false);
   const handleShow = () => setShow(true);
 
-  // Daftar Menu
+  // Helper Badge
+  const renderBadge = (menuName) => {
+    if (menuName === 'Data Anjab') {
+        if ((user?.role === 'ADMIN' || user?.role === 'KASUDIN') && notifCounts.pending > 0) {
+            return <BsBadge bg="danger" pill className="ms-auto">{notifCounts.pending}</BsBadge>;
+        }
+        // Logic Guru: Ambil angka dari Context yang bisa di-reset jadi 0
+        if (user?.role === 'GURU_TENDIK' && notifCounts.approved > 0) {
+            return <BsBadge bg="success" pill className="ms-auto">{notifCounts.approved}</BsBadge>;
+        }
+    }
+    return null;
+  };
+
   const menus = [
     { name: 'Dashboard', path: '/dashboard', icon: <LayoutDashboard size={20} />, roles: ['ADMIN', 'KASUDIN', 'GURU_TENDIK'] },
     { name: 'Data Anjab', path: '/anjab', icon: <FileText size={20} />, roles: ['ADMIN', 'KASUDIN', 'GURU_TENDIK'] },
@@ -22,7 +42,6 @@ export default function Layout({ children }) {
 
   const filteredMenus = menus.filter(menu => menu.roles.includes(user?.role));
 
-  // Komponen Sidebar (Dipakai ulang di Desktop & Mobile)
   const SidebarContent = () => (
     <div className="d-flex flex-column h-100 bg-white">
       <div className="p-3 border-bottom text-center">
@@ -44,6 +63,8 @@ export default function Layout({ children }) {
           >
             {menu.icon} 
             <span className="fw-medium">{menu.name}</span>
+            {/* Render Badge dari Context */}
+            {renderBadge(menu.name)}
           </Nav.Link>
         ))}
       </Nav>
@@ -61,33 +82,25 @@ export default function Layout({ children }) {
 
   return (
     <div className="d-flex vh-100 overflow-hidden bg-light">
-      {/* === 1. SIDEBAR DESKTOP (Kiri) === */}
-      {/* Hanya muncul di layar besar (lg ke atas) */}
       <aside className="d-none d-lg-block bg-white border-end shadow-sm" style={{ width: '260px', minWidth: '260px' }}>
         <SidebarContent />
       </aside>
 
-      {/* === 2. KONTEN UTAMA (Kanan) === */}
       <main className="flex-grow-1 d-flex flex-column h-100 overflow-hidden position-relative">
-        
-        {/* Header / Navbar */}
         <Navbar bg="white" className="border-bottom px-4 py-3 shadow-sm" expand={false}>
           <div className="d-flex align-items-center w-100">
-            {/* Tombol Menu Mobile */}
             <Button variant="light" className="d-lg-none me-3 border" onClick={handleShow}>
               <Menu size={24} className="text-dark" />
             </Button>
 
-            {/* Judul Halaman */}
             <h5 className="mb-0 fw-bold text-dark me-auto">
               {menus.find(m => m.path === location.pathname)?.name || 'Dashboard'}
             </h5>
 
-            {/* Profil User */}
             <div className="d-flex align-items-center gap-3">
                <div className="text-end d-none d-md-block lh-1">
                  <div className="fw-bold text-dark" style={{fontSize: '14px'}}>{user?.nama_lengkap}</div>
-                 <BadgeRole role={user?.role} />
+                 <div className="text-muted small" style={{fontSize: '11px'}}>{user?.role}</div>
                </div>
                <div className="bg-light rounded-circle p-1 border">
                  <UserCircle size={32} className="text-secondary" />
@@ -96,14 +109,11 @@ export default function Layout({ children }) {
           </div>
         </Navbar>
 
-        {/* Area Konten Scrollable */}
         <div className="flex-grow-1 overflow-auto p-4 bg-light">
           {children}
         </div>
       </main>
 
-      {/* === 3. SIDEBAR MOBILE (Offcanvas) === */}
-      {/* Hapus prop 'responsive="lg"' agar tidak bentrok dengan sidebar desktop */}
       <Offcanvas show={show} onHide={handleClose} placement="start">
         <Offcanvas.Header closeButton>
           <Offcanvas.Title className="fw-bold text-primary">Menu</Offcanvas.Title>
@@ -114,12 +124,4 @@ export default function Layout({ children }) {
       </Offcanvas>
     </div>
   );
-}
-
-// Komponen kecil untuk mempercantik Role
-function BadgeRole({ role }) {
-  let color = 'text-muted';
-  if (role === 'ADMIN') color = 'text-primary';
-  if (role === 'KASUDIN') color = 'text-success';
-  return <div className={`small fw-bold ${color}`} style={{fontSize: '11px'}}>{role}</div>;
 }

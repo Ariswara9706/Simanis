@@ -32,4 +32,34 @@ router.get('/stats', verifyToken, async (req, res) => {
   }
 });
 
+
+// === GET NOTIFICATION COUNTS ===
+router.get('/notifications', verifyToken, async (req, res) => {
+    try {
+        let pendingCount = 0;
+        let approvedCount = 0;
+
+        // Admin/Kasudin: Hitung yang PENDING
+        if (req.userRole === 'ADMIN' || req.userRole === 'KASUDIN') {
+            const resCount = await pool.query(
+                "SELECT COUNT(*) FROM anjab_change_requests WHERE status = 'PENDING'"
+            );
+            pendingCount = parseInt(resCount.rows[0].count);
+        }
+
+        // Guru: Hitung yang SELESAI tapi BELUM DIBACA
+        if (req.userRole === 'GURU_TENDIK') {
+            const resCount = await pool.query(
+                "SELECT COUNT(*) FROM anjab_change_requests WHERE requested_by = $1 AND status IN ('APPROVED', 'REJECTED') AND is_read = FALSE",
+                [req.userId]
+            );
+            approvedCount = parseInt(resCount.rows[0].count);
+        }
+
+        res.json({ pending: pendingCount, approved: approvedCount });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
 module.exports = router;

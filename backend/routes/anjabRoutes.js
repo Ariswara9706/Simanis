@@ -4,25 +4,35 @@ const router = express.Router();
 const pool = require('../db');
 const { verifyToken, authorize } = require('../middleware/authMiddleware');
 
-// === 1. GET DATA (Dengan Filter & Role Logic) ===
+// === 1. GET DATA (Dengan Filter, Pagination, Sorting) ===
 router.get('/', verifyToken, async (req, res) => {
   try {
-    const { nama, nip, nrk, kecamatan, unit_kerja } = req.query;
-    let query = `
+    const { 
+        nama, nip, nrk, kecamatan, unit_kerja, 
+        page = 1, limit = 10, 
+        sortBy = 'nama_pegawai', sortOrder = 'ASC' 
+    } = req.query;
+
+    const offset = (parseInt(page) - 1) * parseInt(limit);
+
+    // Query Dasar
+   let baseQuery = `
       SELECT a.*, 
-      (SELECT status FROM anjab_change_requests WHERE anjab_data_id = a.id AND status = 'PENDING' LIMIT 1) as request_status
+      (SELECT status FROM anjab_change_requests WHERE anjab_data_id = a.id AND status = 'PENDING' LIMIT 1) as request_status,
+      (SELECT id FROM anjab_change_requests WHERE anjab_data_id = a.id AND status = 'PENDING' LIMIT 1) as pending_request_id
       FROM anjab_data a 
     `;
+    
+    let countQuery = `SELECT COUNT(*) FROM anjab_data a`;
+
     let params = [];
     let conditions = [];
 
-    // Logic Role: Guru hanya lihat data sendiri
+    // Filter Logic
     if (req.userRole === 'GURU_TENDIK') {
       conditions.push(`a.user_id = $${params.length + 1}`);
       params.push(req.userId);
-    } 
-    // Admin & Kasudin lihat semua (bisa tambah filter query string)
-    else {
+    } else {
       if (nama) { conditions.push(`a.nama_pegawai ILIKE $${params.length + 1}`); params.push(`%${nama}%`); }
       if (nip) { conditions.push(`a.nip ILIKE $${params.length + 1}`); params.push(`%${nip}%`); }
       if (nrk) { conditions.push(`a.nrk ILIKE $${params.length + 1}`); params.push(`%${nrk}%`); }
@@ -31,13 +41,43 @@ router.get('/', verifyToken, async (req, res) => {
     }
 
     if (conditions.length > 0) {
-      query += ' WHERE ' + conditions.join(' AND ');
+      const whereClause = ' WHERE ' + conditions.join(' AND ');
+      baseQuery += whereClause;
+      countQuery += whereClause;
     }
 
-    query += ' ORDER BY a.nama_pegawai ASC';
+    // Sorting Logic
+    // Jika sort by status, kita pakai alias 'request_status'
+    let orderClause = '';
+    if (sortBy === 'status_verifikasi') {
+        orderClause = ` ORDER BY request_status ${sortOrder} NULLS LAST`;
+    } else {
+        // Default sort by column name
+        orderClause = ` ORDER BY a.${sortBy} ${sortOrder}`;
+    }
 
-    const result = await pool.query(query, params);
-    res.json(result.rows);
+    // Pagination
+    const limitClause = ` LIMIT $${params.length + 1} OFFSET $${params.length + 2}`;
+    
+    // Eksekusi Query Data
+    const finalQuery = baseQuery + orderClause + limitClause;
+    const dataResult = await pool.query(finalQuery, [...params, limit, offset]);
+
+    // Eksekusi Query Total (Untuk menghitung halaman)
+    const countResult = await pool.query(countQuery, params);
+    const totalItems = parseInt(countResult.rows[0].count);
+    const totalPages = Math.ceil(totalItems / limit);
+
+    res.json({
+        data: dataResult.rows,
+        pagination: {
+            totalItems,
+            totalPages,
+            currentPage: parseInt(page),
+            limit: parseInt(limit)
+        }
+    });
+
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -131,6 +171,95 @@ router.delete('/:id', verifyToken, authorize(['ADMIN']), async (req, res) => {
     try {
         await pool.query('DELETE FROM anjab_data WHERE id = $1', [req.params.id]);
         res.json({ message: 'Data deleted successfully' });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+
+// === 4. GET HISTORY PER ITEM (Dipecah: Pengajuan & Keputusan) ===
+router.get('/:id/history', verifyToken, async (req, res) => {
+    try {
+        const { id } = req.params;
+        const page = parseInt(req.query.page) || 1;
+        const limit = parseInt(req.query.limit) || 10;
+
+        // 1. Ambil SEMUA request (tanpa limit SQL dulu, karena kita mau memecah baris di JS)
+        const query = `
+            SELECT r.id, r.created_at, r.processed_at, r.status, r.admin_note, u.nama_lengkap as pemohon
+            FROM anjab_change_requests r
+            LEFT JOIN users u ON r.requested_by = u.id
+            WHERE r.anjab_data_id = $1
+            ORDER BY r.created_at DESC
+        `;
+        
+        const result = await pool.query(query, [id]);
+        
+        // 2. LOGIKA SPLIT: 1 Row Database -> Jadi 2 Baris History (Timeline)
+        let events = [];
+        
+        result.rows.forEach(row => {
+            // A. Event Keputusan (Hanya jika sudah diproses/tidak pending)
+            // Ini ditaruh duluan biar muncul paling atas (terbaru)
+            if (row.status !== 'PENDING' && row.processed_at) {
+                events.push({
+                    id: `dec-${row.id}`, // ID unik buatan
+                    created_at: row.processed_at, // Waktu admin klik
+                    pemohon: 'Admin Verifikator', // Actornya admin
+                    status: row.status, // APPROVED / REJECTED
+                    admin_note: row.admin_note,
+                    original_status: 'DECISION'
+                });
+            }
+            
+            // B. Event Pengajuan (Selalu ada)
+            events.push({
+                id: `req-${row.id}`,
+                created_at: row.created_at, // Waktu user klik simpan
+                pemohon: row.pemohon || 'User',
+                status: 'MENUNGGU VERIFIKASI', // Label historis
+                admin_note: '-', // Saat pengajuan belum ada note
+                original_status: 'REQUEST'
+            });
+        });
+
+        // 3. Sorting Ulang berdasarkan Waktu (Terbaru diatas)
+        events.sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
+
+        // 4. Pagination Manual (Memory Slicing)
+        const totalItems = events.length;
+        const totalPages = Math.ceil(totalItems / limit);
+        const startIndex = (page - 1) * limit;
+        const paginatedData = events.slice(startIndex, startIndex + limit);
+
+        res.json({
+            data: paginatedData,
+            pagination: {
+                totalItems,
+                totalPages,
+                currentPage: page,
+                limit
+            }
+        });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// === 5. MARK AS READ (Tandai Sudah Dibaca) ===
+router.put('/:id/mark-read', verifyToken, async (req, res) => {
+    try {
+        const { id } = req.params; // ID Data Anjab
+        
+        // Update request milik user ini yang terkait data ini menjadi is_read = TRUE
+        await pool.query(
+            `UPDATE anjab_change_requests 
+             SET is_read = TRUE 
+             WHERE anjab_data_id = $1 AND requested_by = $2 AND status IN ('APPROVED', 'REJECTED')`,
+            [id, req.userId]
+        );
+
+        res.json({ message: 'Marked as read' });
     } catch (err) {
         res.status(500).json({ error: err.message });
     }
