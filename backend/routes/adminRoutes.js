@@ -5,7 +5,7 @@ const pool = require('../db');
 const bcrypt = require('bcryptjs');
 const { verifyToken, authorize } = require('../middleware/authMiddleware');
 
-// Middleware: Hanya Admins
+// Middleware: Hanya Admins2
 router.use(verifyToken, authorize(['ADMIN']));
 
 // === 1. LIST PENDING REQUESTS ===
