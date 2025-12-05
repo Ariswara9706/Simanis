@@ -603,9 +603,7 @@ return (
                                         {item.status_pegawai && <Badge bg="light" text="dark" className="border mt-1">{item.status_pegawai}</Badge>}
                                     </td>
                                     <td>
-                                        <div className="fw-medium">{item.nip ? item.nip.replace(/^'/, '') : '-'}</div>
-                                        <small className="text-muted">{item.nrk}</small>
-                                    </td>
+                                                                          </td>
                                     <td className="text-wrap" style={{maxWidth: '200px'}}>{item.jabatan}</td>
                                     <td className="text-wrap" style={{maxWidth: '200px'}}>{item.unit_kerja_nama}</td>
                                     <td>
