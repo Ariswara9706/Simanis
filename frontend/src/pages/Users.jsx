@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import Layout from '../components/Layout';
 import api from '../services/api';
 import { Table, Card, Button, Badge, Modal, Form, Spinner, ListGroup } from 'react-bootstrap';
-import { Trash2, UserPlus, Edit, Search } from 'lucide-react'; 
+import { Trash2, UserPlus, Edit, Search, UserCheck, AlertCircle } from 'lucide-react'; 
 import toast from 'react-hot-toast';
 
 export default function Users() {
@@ -18,11 +18,12 @@ export default function Users() {
     username: '',
     password: '',
     nama_lengkap: '',
-    role: 'GURU_TENDIK'
+    role: 'GURU_TENDIK',
+    anjab_id: null
   });
   const [saving, setSaving] = useState(false);
 
-  // === STATE BARU UNTUK PENCARIAN GURU ===
+  // State Pencarian Guru
   const [searchTerm, setSearchTerm] = useState('');
   const [searchResults, setSearchResults] = useState([]);
   const [isSearching, setIsSearching] = useState(false);
@@ -47,16 +48,14 @@ export default function Users() {
   }, []);
 
   // === LOGIC PENCARIAN GURU (AUTOCOMPLETE) ===
-  // Efek ini jalan setiap kali 'searchTerm' berubah
   useEffect(() => {
     const delayDebounceFn = setTimeout(async () => {
-      // Hanya cari jika role Guru, input > 2 huruf, dan dropdown sedang aktif
       if (formData.role === 'GURU_TENDIK' && searchTerm.length >= 2 && showDropdown) {
         setIsSearching(true);
         try {
-          // Panggil API Anjab yang sudah ada filternya
-          const res = await api.get(`/anjab?nama=${searchTerm}`);
-          setSearchResults(res.data);
+          // PERBAIKAN 1: Ambil data dari properti .data (karena backend sekarang pakai pagination)
+          const res = await api.get(`/anjab?nama=${searchTerm}&limit=50`); 
+          setSearchResults(res.data.data); // <--- Perubahan Disini
         } catch (error) {
           console.error("Gagal cari guru", error);
         } finally {
@@ -65,26 +64,38 @@ export default function Users() {
       } else if (searchTerm.length < 2) {
         setSearchResults([]);
       }
-    }, 500); // Tunggu 500ms setelah user berhenti mengetik (biar gak berat)
+    }, 500);
 
     return () => clearTimeout(delayDebounceFn);
   }, [searchTerm, formData.role, showDropdown]);
 
-  // Saat Guru dipilih dari dropdown
- const handleSelectGuru = (guru) => {
+  // === HANDLER SELECT GURU ===
+  const handleSelectGuru = (guru) => {
+    // PERBAIKAN 2: Cek apakah guru sudah punya akun?
+    if (guru.user_id && guru.user_id !== selectedId) {
+        return; // Jangan lakukan apa-apa kalau sudah dipake orang lain
+    }
+
     setFormData({
       ...formData,
       nama_lengkap: guru.nama_pegawai,
       username: guru.nip || guru.nama_pegawai.split(' ')[0].toLowerCase() + '123',
-      
-      // PENTING: Simpan ID data Anjab supaya bisa dilink nanti
       anjab_id: guru.id 
     });
     setSearchTerm(guru.nama_pegawai); 
     setShowDropdown(false); 
   };
 
-  // === HANDLER OPEN MODAL (RESET) ===
+  // === HANDLER MODAL & LAINNYA ===
+  const handleDelete = async (id) => {
+    if(!window.confirm("Yakin hapus user ini?")) return;
+    try {
+        await api.delete(`/admin/users/${id}`);
+        toast.success("User dihapus");
+        fetchUsers();
+    } catch (error) { toast.error("Gagal hapus"); }
+  };
+
   const handleOpenModal = (user = null) => {
     setSearchResults([]); 
     setShowDropdown(false);
@@ -97,51 +108,35 @@ export default function Users() {
             password: '', 
             nama_lengkap: user.nama_lengkap,
             role: user.role,
-            anjab_id: null // Reset saat edit (kecuali mau fitur relink, tp skip dulu biar simple)
+            anjab_id: null 
         });
         setSearchTerm(user.nama_lengkap); 
     } else {
         setIsEdit(false);
         setSelectedId(null);
-        // Reset anjab_id jadi null
         setFormData({ username: '', password: '', nama_lengkap: '', role: 'GURU_TENDIK', anjab_id: null });
         setSearchTerm('');
     }
     setShowModal(true);
   };
 
-  // === HANDLER DELETE ===
-  const handleDelete = async (id) => {
-    if(!window.confirm("Yakin ingin menghapus user ini? Akses mereka akan hilang.")) return;
-    try {
-        await api.delete(`/admin/users/${id}`);
-        toast.success("User berhasil dihapus");
-        fetchUsers();
-    } catch (error) {
-        toast.error(error.response?.data?.message || "Gagal hapus user");
-    }
-  };
-
- 
-
-  // === HANDLER SIMPAN ===
   const handleSave = async (e) => {
       e.preventDefault();
-      if (!isEdit && !formData.password) return toast.error("Password wajib diisi untuk user baru!");
+      if (!isEdit && !formData.password) return toast.error("Password wajib diisi!");
 
       setSaving(true);
       try {
           if (isEdit) {
             await api.put(`/admin/users/${selectedId}`, formData);
-            toast.success("Data user diperbarui!");
+            toast.success("User diperbarui!");
           } else {
             await api.post('/admin/users', formData);
-            toast.success("User baru berhasil ditambahkan!");
+            toast.success("User dibuat!");
           }
           setShowModal(false);
           fetchUsers();
       } catch (error) {
-          toast.error(error.response?.data?.message || "Gagal menyimpan user");
+          toast.error(error.response?.data?.message || "Gagal simpan");
       } finally {
           setSaving(false);
       }
@@ -156,7 +151,7 @@ export default function Users() {
       <div className="d-flex justify-content-between align-items-center mb-4">
         <div>
             <h2 className="fw-bold text-dark mb-1">Manajemen User</h2>
-            <p className="text-muted small">Kelola akun akses aplikasi (Admin, Kasudin, Guru)</p>
+            <p className="text-muted small">Kelola akun akses aplikasi</p>
         </div>
         <Button variant="primary" onClick={() => handleOpenModal(null)}>
             <UserPlus size={18} className="me-2" /> Tambah User
@@ -207,15 +202,12 @@ export default function Users() {
         </Card.Body>
       </Card>
 
-      {/* MODAL FORM */}
       <Modal show={showModal} onHide={() => setShowModal(false)} backdrop="static">
         <Modal.Header closeButton>
             <Modal.Title>{isEdit ? 'Edit Data User' : 'Tambah User Baru'}</Modal.Title>
         </Modal.Header>
         <Form onSubmit={handleSave}>
             <Modal.Body>
-                
-                {/* ROLE SELECTOR */}
                 <Form.Group className="mb-3">
                     <Form.Label>Role (Hak Akses)</Form.Label>
                     <Form.Select name="role" value={formData.role} onChange={handleChange}>
@@ -225,7 +217,6 @@ export default function Users() {
                     </Form.Select>
                 </Form.Group>
 
-                {/* LOGIKA INPUT NAMA: JIKA GURU -> SEARCHABLE, JIKA ADMIN -> TEXT BIASA */}
                 <Form.Group className="mb-3 position-relative">
                     <Form.Label>Nama Lengkap</Form.Label>
                     
@@ -235,48 +226,60 @@ export default function Users() {
                                 <span className="input-group-text bg-white"><Search size={16}/></span>
                                 <Form.Control 
                                     type="text"
-                                    placeholder="Ketik nama guru untuk mencari..."
+                                    placeholder="Ketik nama guru..."
                                     value={searchTerm}
                                     onChange={(e) => {
                                         setSearchTerm(e.target.value);
-                                        setFormData({...formData, nama_lengkap: e.target.value}); // Tetap simpan manual jaga2
+                                        setFormData({...formData, nama_lengkap: e.target.value});
                                         setShowDropdown(true);
                                     }}
                                     onFocus={() => setShowDropdown(true)}
                                     autoComplete="off"
                                 />
-                                {/* LOADING SPINNER DI KANAN */}
                                 {isSearching && (
                                     <span className="input-group-text bg-white border-start-0">
-                                        <Spinner animation="border" size="sm" variant="primary" />
+                                        <Spinner animation="border" size="sm" />
                                     </span>
                                 )}
                             </div>
 
                             {/* DROPDOWN HASIL PENCARIAN */}
                             {showDropdown && searchResults.length > 0 && (
-                                <ListGroup className="position-absolute w-100 shadow mt-1" style={{zIndex: 1050, maxHeight: '200px', overflowY: 'auto'}}>
-                                    {searchResults.map((guru) => (
-                                        <ListGroup.Item 
-                                            key={guru.id} 
-                                            action 
-                                            onClick={() => handleSelectGuru(guru)}
-                                            className="d-flex justify-content-between align-items-center"
-                                        >
-                                            <div>
-                                                <strong>{guru.nama_pegawai}</strong>
-                                                <div className="small text-muted">{guru.nip || 'Non-PNS'} - {guru.jabatan}</div>
-                                            </div>
-                                        </ListGroup.Item>
-                                    ))}
+                                <ListGroup className="position-absolute w-100 shadow mt-1" style={{zIndex: 1050, maxHeight: '250px', overflowY: 'auto'}}>
+                                    {searchResults.map((guru) => {
+                                        // PERBAIKAN 3: Cek status Linked
+                                        const isLinked = guru.user_id !== null; 
+                                        
+                                        return (
+                                            <ListGroup.Item 
+                                                key={guru.id} 
+                                                action 
+                                                // Disable jika sudah dilink (kecuali punya sendiri saat edit)
+                                                onClick={() => !isLinked && handleSelectGuru(guru)}
+                                                disabled={isLinked}
+                                                className={`d-flex justify-content-between align-items-center ${isLinked ? 'bg-light' : ''}`}
+                                                style={{ cursor: isLinked ? 'not-allowed' : 'pointer' }}
+                                            >
+                                                <div>
+                                                    <div className={isLinked ? 'text-muted' : 'fw-bold'}>{guru.nama_pegawai}</div>
+                                                    <div className="small text-muted">{guru.nip || 'Non-PNS'} - {guru.jabatan}</div>
+                                                </div>
+                                                {/* Tampilkan Badge jika sudah ada akun */}
+                                                {isLinked && (
+                                                    <Badge bg="danger" className="ms-2">
+                                                        <UserCheck size={10} className="me-1"/> Akun Ada
+                                                    </Badge>
+                                                )}
+                                            </ListGroup.Item>
+                                        );
+                                    })}
                                 </ListGroup>
                             )}
                              {showDropdown && searchTerm.length > 2 && !isSearching && searchResults.length === 0 && (
-                                <div className="text-muted small mt-1 fst-italic">Data guru tidak ditemukan di database Anjab.</div>
+                                <div className="text-muted small mt-1">Data guru tidak ditemukan.</div>
                             )}
                         </>
                     ) : (
-                        // INPUT BIASA UNTUK ADMIN / KASUDIN
                         <Form.Control 
                             type="text" 
                             name="nama_lengkap"
@@ -291,39 +294,20 @@ export default function Users() {
                     <div className="col-md-6">
                         <Form.Group className="mb-3">
                             <Form.Label>Username</Form.Label>
-                            <Form.Control 
-                                type="text" 
-                                name="username"
-                                value={formData.username} 
-                                onChange={handleChange} 
-                                required 
-                                placeholder="Tanpa spasi"
-                            />
+                            <Form.Control type="text" name="username" value={formData.username} onChange={handleChange} required />
                         </Form.Group>
                     </div>
                     <div className="col-md-6">
                         <Form.Group className="mb-3">
-                            <Form.Label className="d-flex justify-content-between">
-                                Password 
-                                {isEdit && <small className="text-muted fw-normal">(Opsional)</small>}
-                            </Form.Label>
-                            <Form.Control 
-                                type="password" 
-                                name="password"
-                                value={formData.password} 
-                                onChange={handleChange} 
-                                placeholder={isEdit ? "Isi jika ingin ubah" : "Wajib diisi"}
-                                required={!isEdit} 
-                            />
+                            <Form.Label>Password {isEdit && <small className="text-muted">(Opsional)</small>}</Form.Label>
+                            <Form.Control type="password" name="password" value={formData.password} onChange={handleChange} placeholder={isEdit ? "..." : "Wajib"} required={!isEdit} />
                         </Form.Group>
                     </div>
                 </div>
             </Modal.Body>
             <Modal.Footer>
                 <Button variant="secondary" onClick={() => setShowModal(false)}>Batal</Button>
-                <Button variant="primary" type="submit" disabled={saving}>
-                    {saving ? 'Menyimpan...' : 'Simpan User'}
-                </Button>
+                <Button variant="primary" type="submit" disabled={saving}>{saving ? 'Menyimpan...' : 'Simpan'}</Button>
             </Modal.Footer>
         </Form>
       </Modal>
