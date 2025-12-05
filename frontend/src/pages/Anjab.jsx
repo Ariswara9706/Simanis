@@ -560,8 +560,7 @@ return (
                              <div className="d-flex justify-content-between align-items-start mb-2">
                                 <div>
                                     <div className="fw-bold text-dark">{item.nama_pegawai}</div>
-                                    <div className="small text-muted">{item.nip?.replace(/^'/, '')}</div>
-                                </div>
+                                                                   </div>
                                 {item.request_status === 'PENDING' ? <Badge bg="warning" text="dark">Pending</Badge> : <Badge bg="success">Verified</Badge>}
                              </div>
                              
